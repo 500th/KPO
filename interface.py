@@ -4,7 +4,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from folder_scanner import find_empty_folders
 from folder_cleaner import delete_empty_folders
-
+from file_generator import generate_file
 
 def create_interface():
     root = tk.Tk()
@@ -84,6 +84,60 @@ def create_interface():
         command=delete_selected
     ).pack(anchor="e", pady=10)
 
-    ttk.Label(generator_tab, text="Генератор файлов добавим следующим этапом.").pack()
+    # Создание файлов
+    output_folder_var = tk.StringVar()
+    file_name_var = tk.StringVar()
+    file_size_var = tk.StringVar(value="1")
+    unit_var = tk.StringVar(value="КБ")
+    content_var = tk.StringVar(value="Нули")
+
+    def choose_output_folder():
+        folder = filedialog.askdirectory()
+        if folder:
+            output_folder_var.set(folder)
+
+    def create_file():
+        try:
+            size = int(file_size_var.get())
+            path = generate_file(
+                output_folder_var.get().strip(),
+                file_name_var.get().strip(),
+                size,
+                unit_var.get(),
+                content_var.get()
+            )
+        except (ValueError, OSError) as error:
+            messagebox.showerror("Ошибка создания файла", str(error))
+            return
+
+        messagebox.showinfo("Готово", f"Файл создан:\n{path}")
+
+    ttk.Label(generator_tab, text="Папка для сохранения:").pack(anchor="w")
+    ttk.Entry(generator_tab, textvariable=output_folder_var).pack(fill="x", pady=5)
+    ttk.Button(
+        generator_tab, text="Выбрать папку", command=choose_output_folder
+    ).pack(anchor="w")
+
+    ttk.Label(generator_tab, text="Имя файла:").pack(anchor="w", pady=(15, 0))
+    ttk.Entry(generator_tab, textvariable=file_name_var).pack(fill="x", pady=5)
+
+    ttk.Label(generator_tab, text="Размер файла:").pack(anchor="w", pady=(10, 0))
+    ttk.Entry(generator_tab, textvariable=file_size_var).pack(fill="x", pady=5)
+
+    ttk.Label(generator_tab, text="Единица измерения:").pack(anchor="w")
+    ttk.Combobox(
+        generator_tab, textvariable=unit_var,
+        values=("КБ", "МБ", "ГБ"), state="readonly"
+    ).pack(fill="x", pady=5)
+
+    ttk.Label(generator_tab, text="Содержимое файла:").pack(anchor="w")
+    ttk.Combobox(
+        generator_tab, textvariable=content_var,
+        values=("Нули", "Случайные данные"), state="readonly"
+    ).pack(fill="x", pady=5)
+
+    ttk.Button(
+        generator_tab, text="Создать файл", command=create_file
+    ).pack(anchor="e", pady=15)
 
     root.mainloop()
