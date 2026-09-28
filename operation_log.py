@@ -1,12 +1,22 @@
 import logging
+from pathlib import Path
 
 
-logging.basicConfig(
-    filename="operations.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(message)s"
-)
+logger = logging.getLogger("kpo")
+logger.setLevel(logging.INFO)
+
+if not logger.handlers:
+    log_path = Path(__file__).with_name("operations.log")
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    logger.addHandler(handler)
 
 
 def log_operation(message):
-    logging.info(message)
+    logger.info(message)
+
+
+def log_error(message):
+    logger.error(message)

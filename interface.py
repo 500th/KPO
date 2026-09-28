@@ -2,11 +2,15 @@ import os
 import queue
 import threading
 import tkinter as tk
+
 from tkinter import filedialog, messagebox, ttk
+
+from operation_log import log_operation, log_error
 
 from file_generator import generate_file
 from folder_cleaner import delete_empty_folders
 from folder_scanner import find_empty_folders
+from validator import validate_folder
 
 
 def create_interface():
@@ -35,8 +39,10 @@ def create_interface():
     def scan_folders():
         path = path_var.get().strip()
 
-        if not os.path.isdir(path):
-            messagebox.showerror("Ошибка", "Выберите существующую папку.")
+        try:
+            path = validate_folder(path)
+        except ValueError as error:
+            messagebox.showerror("Ошибка", str(error))
             return
 
         folder_list.delete(0, tk.END)
@@ -44,13 +50,14 @@ def create_interface():
         try:
             found = find_empty_folders(path, exclusion_list.get(0, tk.END))
         except OSError as error:
+            log_error(f"Ошибка сканирования {path}: {error}")
             messagebox.showerror("Ошибка сканирования", str(error))
             return
 
         for folder in found:
             if os.path.normcase(os.path.abspath(folder)) != os.path.normcase(os.path.abspath(path)):
                 folder_list.insert(tk.END, folder)
-
+        log_operation(f"Поиск пустых папок: {path}; найдено: {folder_list.size()}")
         if folder_list.size() == 0:
             messagebox.showinfo("Результат", "Пустые вложенные папки не найдены.")
 
@@ -71,6 +78,9 @@ def create_interface():
             return
 
         deleted, errors = delete_empty_folders(path_var.get().strip(), selected)
+        log_operation(f"Удалено пустых папок: {len(deleted)}")
+        for path, error in errors:
+            log_error(f"Не удалось удалить {path}: {error}")
 
         for index in reversed(indices):
             if folder_list.get(index) in deleted:
@@ -173,13 +183,16 @@ def create_interface():
                 elif kind == "done":
                     finish_operation()
                     status_var.set("Файл создан")
+                    log_operation(f"Создан файл: {value}")
                     messagebox.showinfo("Готово", f"Файл создан:\n{value}")
                 elif kind == "cancelled":
                     finish_operation()
                     status_var.set("Создание отменено")
+                    log_operation("Создание файла отменено")
                 elif kind == "error":
                     finish_operation()
                     status_var.set("Ошибка")
+                    log_error(f"Ошибка создания файла: {value}")
                     messagebox.showerror("Ошибка создания файла", value)
         except queue.Empty:
             pass

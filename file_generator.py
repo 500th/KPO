@@ -2,25 +2,14 @@ import os
 import shutil
 import tempfile
 
+from validator import validate_folder, validate_file_parameters
 
 def generate_file(
     folder, name, size, unit, content_type,
     overwrite=False, progress_callback=None, cancel_event=None):
 
-    if not name or name in (".", "..") or os.path.basename(name) != name:
-        raise ValueError("Укажите корректное имя файла")
-
-    if size <= 0:
-        raise ValueError("Размер должен быть больше нуля")
-
-    units = {"КБ": 1024, "МБ": 1024 ** 2, "ГБ": 1024 ** 3}
-    if unit not in units:
-        raise ValueError("Неизвестная единица измерения")
-
-    if content_type not in ("Нули", "Случайные данные"):
-        raise ValueError("Неизвестный тип содержимого")
-
-    size_bytes = size * units[unit]
+    folder = validate_folder(folder)
+    size_bytes = validate_file_parameters(name, size, unit, content_type)
     path = os.path.join(folder, name)
 
     if os.path.exists(path) and not overwrite:
