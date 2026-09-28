@@ -1,15 +1,18 @@
 import os
+import queue
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from folder_scanner import find_empty_folders
-from folder_cleaner import delete_empty_folders
 from file_generator import generate_file
+from folder_cleaner import delete_empty_folders
+from folder_scanner import find_empty_folders
+
 
 def create_interface():
     root = tk.Tk()
     root.title("Утилита файловой системы")
-    root.geometry("700x450")
+    root.geometry("700x500")
 
     tabs = ttk.Notebook(root)
     tabs.pack(fill="both", expand=True)
@@ -19,6 +22,7 @@ def create_interface():
     tabs.add(cleaner_tab, text="Очистка папок")
     tabs.add(generator_tab, text="Генератор файлов")
 
+    # Первая вкладка: поиск и удаление пустых папок
     path_var = tk.StringVar()
 
     def choose_folder():
@@ -51,12 +55,11 @@ def create_interface():
 
         selected = [folder_list.get(index) for index in indices]
 
-        confirmed = messagebox.askyesno(
+        if not messagebox.askyesno(
             "Подтверждение удаления",
             f"Удалить выбранные папки ({len(selected)})?\n"
             "Они не попадут в корзину."
-        )
-        if not confirmed:
+        ):
             return
 
         deleted, errors = delete_empty_folders(path_var.get().strip(), selected)
@@ -74,43 +77,124 @@ def create_interface():
     ttk.Label(cleaner_tab, text="Папка для проверки:").pack(anchor="w")
     ttk.Entry(cleaner_tab, textvariable=path_var).pack(fill="x", pady=5)
     ttk.Button(cleaner_tab, text="Выбрать папку", command=choose_folder).pack(anchor="w")
-    ttk.Button(cleaner_tab, text="Найти пустые папки", command=scan_folders).pack(anchor="w", pady=10)
+    ttk.Button(cleaner_tab, text="Найти пустые папки", command=scan_folders).pack(
+        anchor="w", pady=10
+    )
 
     folder_list = tk.Listbox(cleaner_tab, selectmode=tk.EXTENDED)
     folder_list.pack(fill="both", expand=True)
+
     ttk.Button(
-        cleaner_tab,
-        text="Удалить выбранные",
-        command=delete_selected
+        cleaner_tab, text="Удалить выбранные", command=delete_selected
     ).pack(anchor="e", pady=10)
 
-    # Создание файлов
+    # Вторая вкладка: создание тестовых файлов
     output_folder_var = tk.StringVar()
     file_name_var = tk.StringVar()
     file_size_var = tk.StringVar(value="1")
     unit_var = tk.StringVar(value="КБ")
     content_var = tk.StringVar(value="Нули")
+    status_var = tk.StringVar(value="Ожидание")
+
+    updates = queue.Queue()
+    cancel_event = None
+    running = False
 
     def choose_output_folder():
         folder = filedialog.askdirectory()
         if folder:
             output_folder_var.set(folder)
 
-    def create_file():
+    def finish_operation():
+        nonlocal running
+        running = False
+        create_button.config(state="normal")
+        cancel_button.config(state="disabled")
+
+    def check_updates():
         try:
-            size = int(file_size_var.get())
-            path = generate_file(
-                output_folder_var.get().strip(),
-                file_name_var.get().strip(),
-                size,
-                unit_var.get(),
-                content_var.get()
-            )
-        except (ValueError, OSError) as error:
-            messagebox.showerror("Ошибка создания файла", str(error))
+            while True:
+                kind, value = updates.get_nowait()
+
+                if kind == "progress":
+                    progress_bar["value"] = value
+                    status_var.set(f"Создано: {value}%")
+                elif kind == "done":
+                    finish_operation()
+                    status_var.set("Файл создан")
+                    messagebox.showinfo("Готово", f"Файл создан:\n{value}")
+                elif kind == "cancelled":
+                    finish_operation()
+                    status_var.set("Создание отменено")
+                elif kind == "error":
+                    finish_operation()
+                    status_var.set("Ошибка")
+                    messagebox.showerror("Ошибка создания файла", value)
+        except queue.Empty:
+            pass
+
+        if running:
+            root.after(50, check_updates)
+
+    def cancel_creation():
+        if cancel_event is not None:
+            cancel_event.set()
+            cancel_button.config(state="disabled")
+            status_var.set("Отмена...")
+
+    def create_file():
+        nonlocal cancel_event, running
+
+        if running:
             return
 
-        messagebox.showinfo("Готово", f"Файл создан:\n{path}")
+        folder = output_folder_var.get().strip()
+        name = file_name_var.get().strip()
+        unit = unit_var.get()
+        content_type = content_var.get()
+        target = os.path.join(folder, name)
+
+        try:
+            size = int(file_size_var.get())
+        except ValueError:
+            messagebox.showerror("Ошибка", "Размер должен быть целым числом.")
+            return
+
+        overwrite = False
+        if os.path.isfile(target):
+            overwrite = messagebox.askyesno(
+                "Файл уже существует",
+                f"Файл {name} уже существует. Перезаписать его?"
+            )
+            if not overwrite:
+                return
+
+        cancel_event = threading.Event()
+        running = True
+        progress_bar["value"] = 0
+        status_var.set("Создание файла...")
+        create_button.config(state="disabled")
+        cancel_button.config(state="normal")
+
+        def worker():
+            try:
+                path = generate_file(
+                    folder, name, size, unit, content_type,
+                    overwrite=overwrite,
+                    progress_callback=lambda done, total: updates.put(
+                        ("progress", done * 100 // total)
+                    ),
+                    cancel_event=cancel_event
+                )
+            except InterruptedError:
+                updates.put(("cancelled", None))
+            except (ValueError, OSError) as error:
+                updates.put(("error", str(error)))
+            else:
+                updates.put(("done", path))
+
+        threading.Thread(target=worker).start()
+        root.after(50, check_updates)
 
     ttk.Label(generator_tab, text="Папка для сохранения:").pack(anchor="w")
     ttk.Entry(generator_tab, textvariable=output_folder_var).pack(fill="x", pady=5)
@@ -136,8 +220,20 @@ def create_interface():
         values=("Нули", "Случайные данные"), state="readonly"
     ).pack(fill="x", pady=5)
 
-    ttk.Button(
+    create_button = ttk.Button(
         generator_tab, text="Создать файл", command=create_file
-    ).pack(anchor="e", pady=15)
+    )
+    create_button.pack(anchor="e", pady=(15, 5))
+
+    progress_bar = ttk.Progressbar(generator_tab, maximum=100)
+    progress_bar.pack(fill="x", pady=5)
+
+    ttk.Label(generator_tab, textvariable=status_var).pack(anchor="w")
+
+    cancel_button = ttk.Button(
+        generator_tab, text="Отмена", command=cancel_creation,
+        state="disabled"
+    )
+    cancel_button.pack(anchor="e", pady=5)
 
     root.mainloop()
