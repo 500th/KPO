@@ -29,6 +29,8 @@ def create_interface():
         folder = filedialog.askdirectory()
         if folder:
             path_var.set(folder)
+            folder_list.delete(0, tk.END)
+            exclusion_list.delete(0, tk.END)
 
     def scan_folders():
         path = path_var.get().strip()
@@ -39,7 +41,13 @@ def create_interface():
 
         folder_list.delete(0, tk.END)
 
-        for folder in find_empty_folders(path):
+        try:
+            found = find_empty_folders(path, exclusion_list.get(0, tk.END))
+        except OSError as error:
+            messagebox.showerror("Ошибка сканирования", str(error))
+            return
+
+        for folder in found:
             if os.path.normcase(os.path.abspath(folder)) != os.path.normcase(os.path.abspath(path)):
                 folder_list.insert(tk.END, folder)
 
@@ -56,9 +64,9 @@ def create_interface():
         selected = [folder_list.get(index) for index in indices]
 
         if not messagebox.askyesno(
-            "Подтверждение удаления",
-            f"Удалить выбранные папки ({len(selected)})?\n"
-            "Они не попадут в корзину."
+                "Подтверждение удаления",
+                f"Удалить выбранные папки ({len(selected)})?\n"
+                "Они не попадут в корзину."
         ):
             return
 
@@ -74,6 +82,9 @@ def create_interface():
             details = "\n".join(f"{path}: {error}" for path, error in errors)
             messagebox.showwarning("Не удалось удалить", details)
 
+    def select_all_folders():
+        folder_list.selection_set(0, tk.END)
+
     ttk.Label(cleaner_tab, text="Папка для проверки:").pack(anchor="w")
     ttk.Entry(cleaner_tab, textvariable=path_var).pack(fill="x", pady=5)
     ttk.Button(cleaner_tab, text="Выбрать папку", command=choose_folder).pack(anchor="w")
@@ -81,8 +92,48 @@ def create_interface():
         anchor="w", pady=10
     )
 
-    folder_list = tk.Listbox(cleaner_tab, selectmode=tk.EXTENDED)
+    def add_exclusion():
+        if not os.path.isdir(path_var.get().strip()):
+            messagebox.showerror("Ошибка", "Сначала выберите папку для проверки.")
+            return
+
+        folder = filedialog.askdirectory(initialdir=path_var.get().strip())
+        if not folder:
+            return
+
+        if os.path.normcase(os.path.abspath(folder)) == os.path.normcase(
+            os.path.abspath(path_var.get().strip())
+        ):
+            messagebox.showerror("Ошибка", "Нельзя исключить исходную папку.")
+            return
+
+        if folder not in exclusion_list.get(0, tk.END):
+            exclusion_list.insert(tk.END, folder)
+            folder_list.delete(0, tk.END)
+
+    def remove_exclusion():
+        for index in reversed(exclusion_list.curselection()):
+            exclusion_list.delete(index)
+        folder_list.delete(0, tk.END)
+
+    ttk.Label(cleaner_tab, text="Исключённые папки:").pack(anchor="w")
+    exclusion_list = tk.Listbox(cleaner_tab, height=2, exportselection=False)
+    exclusion_list.pack(fill="x", pady=5)
+
+    exclusion_buttons = ttk.Frame(cleaner_tab)
+    exclusion_buttons.pack(fill="x")
+    ttk.Button(
+        exclusion_buttons, text="Добавить исключение", command=add_exclusion
+    ).pack(side="left")
+    ttk.Button(
+        exclusion_buttons, text="Убрать исключение", command=remove_exclusion
+    ).pack(side="left", padx=5)
+
+    folder_list = tk.Listbox(cleaner_tab, selectmode=tk.EXTENDED, exportselection=False)
     folder_list.pack(fill="both", expand=True)
+    ttk.Button(
+        cleaner_tab, text="Выбрать всё", command=select_all_folders
+    ).pack(anchor="w", pady=5)
 
     ttk.Button(
         cleaner_tab, text="Удалить выбранные", command=delete_selected
